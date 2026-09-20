@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>週末備蓄食材ツール</title>
+  <style>
+    :root {
+      --background: #ffffff;
+      --foreground: #0f172a;
+      --card: #f8fafc;
+      --border: #e2e8f0;
+      --primary: #3b82f6;
+      --destructive: #ef4444;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #0f172a;
+        --foreground: #f8fafc;
+        --card: #1e293b;
+        --border: #334155;
+      }
+    }
+    body { background-color: var(--background); color: var(--foreground); }
+    .card { background-color: var(--card); border-color: var(--border); }
+  </style>
+</head>
+<body class="p-2 md:p-4 text-sm font-sans pb-20">
+  
+  <div class="max-w-3xl mx-auto space-y-4">
+    <!-- ヘッダー -->
+    <div class="flex items-center space-x-2">
+      <div class="text-2xl">🍲</div>
+      <h1 class="text-lg font-bold">週末備蓄食材・スキマ計算機</h1>
+    </div>
+
+    <!-- 前提条件 -->
+    <div class="card p-3 border rounded-xl shadow-sm">
+      <h2 class="font-bold mb-3 border-b border-[var(--border)] pb-1">① 基本設定</h2>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-1">なべの基本容量</label>
+          <input type="number" id="base-pot" value="57" class="w-full p-1.5 border border-[var(--border)] rounded bg-transparent">
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-1">バッグの上限</label>
+          <input type="number" id="bag-max" value="800" class="w-full p-1.5 border border-[var(--border)] rounded bg-transparent">
+        </div>
+        <div class="col-span-2 flex items-center space-x-4 mt-1">
+          <label class="flex items-center space-x-1 cursor-pointer">
+            <input type="checkbox" id="camp-ticket" class="w-4 h-4">
+            <span class="text-xs">いいキャンプチケット (容量1.5倍)</span>
+          </label>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-[10px] text-gray-500 mb-1">スキルの追加枠 (拡張済みの合計数)</label>
+          <input type="number" id="skill-pot" value="0" class="w-full p-1.5 border border-[var(--border)] rounded bg-transparent">
+        </div>
+      </div>
+    </div>
+
+    <!-- 予定レシピ -->
+    <div class="card p-3 border rounded-xl shadow-sm">
+      <div class="flex justify-between items-center mb-3 border-b border-[var(--border)] pb-1">
+        <h2 class="font-bold">② 作る予定の料理</h2>
+        <button id="add-meal-btn" class="bg-blue-500 text-white px-2 py-1 rounded text-[10px] font-bold">+ 追加</button>
+      </div>
+      <div id="meals-container" class="space-y-2"></div>
+    </div>
+
+    <!-- 在庫 -->
+    <div class="card p-3 border rounded-xl shadow-sm">
+      <h2 class="font-bold mb-3 border-b border-[var(--border)] pb-1 flex justify-between items-center">
+        ③ 現在の食材在庫
+        <button id="clear-inv-btn" class="text-[10px] text-red-500 border border-red-500 px-2 py-0.5 rounded">リセット</button>
+      </h2>
+      <div class="grid grid-cols-3 gap-2" id="inventory-container"></div>
+    </div>
+
+    <!-- 計算結果 -->
+    <div class="card p-3 border rounded-xl shadow-sm border-blue-400 relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+      <h2 class="font-bold mb-3 flex items-center"><span class="mr-2">📊</span> 計算結果</h2>
+      
+      <div class="space-y-4">
+        <!-- 不足食材 -->
+        <div>
+          <h3 class="text-[11px] font-bold text-red-500 mb-1">🔥 不足している食材</h3>
+          <div id="shortage-result" class="text-xs"></div>
+        </div>
+
+        <!-- バッグ空き・スキマ判定 -->
+        <div class="pt-2 border-t border-[var(--border)]">
+          <h3 class="text-[11px] font-bold text-gray-500 mb-2">📦 バッグの空きと「なべのスキマ」</h3>
+          <div id="surplus-result" class="text-xs space-y-2"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const ingredients = [
+      { id: 'apple', name: 'リンゴ' }, { id: 'milk', name: 'ミルク' },
+      { id: 'soybean', name: '大豆' }, { id: 'honey', name: 'ミツ' },
+      { id: 'sausage', name: 'マメミート' }, { id: 'ginger', name: 'ジンジャー' },
+      { id: 'tomato', name: 'トマト' }, { id: 'egg', name: 'エッグ' },
+      { id: 'potato', name: 'ポテト' }, { id: 'herb', name: 'ハーブ' },
+      { id: 'cacao', name: 'カカオ' }, { id: 'mushroom', name: 'キノコ' },
+      { id: 'leek', name: 'ネギ' }, { id: 'tail', name: 'シッポ' },
+      { id: 'oil', name: 'オイル' }, { id: 'corn', name: 'コーン' },
+      { id: 'coffee', name: 'コーヒー' }, { id: 'pumpkin', name: 'カボチャ' },
+      { id: 'avocado', name: 'アボカド' }
+    ];
+
+    const recipes = [
+      // Curry
+      { id: 'c_avocado', cat: 'カレー', name: 'しんりょくアボカドグラタン', ings: { milk: 41, oil: 32, avocado: 22, potato: 20 } },
+      { id: 'c_sukiyaki', cat: 'カレー', name: 'いあいぎりすき焼きカレー', ings: { leek: 27, sausage: 26, honey: 26, egg: 22 } },
+      { id: 'c_power', cat: 'カレー', name: 'めざめるパワーシチュー', ings: { coffee: 16, soybean: 28, tomato: 25, mushroom: 23 } },
+      { id: 'c_rengoku', cat: 'カレー', name: '煉獄コーンキーマカレー', ings: { corn: 27, sausage: 24, herb: 14, ginger: 12 } },
+      { id: 'c_pumpkin', cat: 'カレー', name: 'なりきりバケッチャシチュー', ings: { mushroom: 25, potato: 18, sausage: 16, pumpkin: 10 } },
+      { id: 'c_butter', cat: 'カレー', name: 'ぜったいねむりバターカレー', ings: { potato: 18, tomato: 15, cacao: 12, milk: 10 } },
+      { id: 'c_ninja', cat: 'カレー', name: 'ニンジャカレー', ings: { leek: 15, soybean: 15, mushroom: 9, ginger: 11 } },
+      { id: 'c_tail', cat: 'カレー', name: '炙りテールカレー', ings: { tail: 8, herb: 25, oil: 16 } },
+      { id: 'c_cheese', cat: 'カレー', name: '満腹チーズバーグカレー', ings: { sausage: 15, milk: 15, tomato: 11 } },
+      { id: 'c_punch', cat: 'カレー', name: 'ピヨピヨパンチ辛口カレー', ings: { coffee: 11, herb: 11, honey: 11 } },
+      
+      // Salad
+      { id: 's_guacamole', cat: 'サラダ', name: 'じならしワカモレチップス', ings: { avocado: 28, corn: 25, soybean: 22, herb: 30 } },
+      { id: 's_yogurt', cat: 'サラダ', name: 'りんごさんヨーグルトサラダ', ings: { egg: 35, apple: 28, tomato: 23, milk: 18 } },
+      { id: 's_makenki', cat: 'サラダ', name: 'まけんきコーヒーサラダ', ings: { coffee: 28, sausage: 28, oil: 22, potato: 22 } },
+      { id: 's_nettou', cat: 'サラダ', name: 'ごろごろねっとうサラダ', ings: { potato: 30, mushroom: 27, pumpkin: 20, corn: 18 } },
+      { id: 's_wakakusa', cat: 'サラダ', name: 'ワカクササラダ', ings: { oil: 22, corn: 17, tomato: 14, potato: 9 } },
+      { id: 's_ninja', cat: 'サラダ', name: '忍者サラダ', ings: { leek: 15, soybean: 15, mushroom: 12, ginger: 11 } },
+      { id: 's_meisou', cat: 'サラダ', name: 'めいそうスイートサラダ', ings: { apple: 21, honey: 16, corn: 12 } },
+      { id: 's_overheat', cat: 'サラダ', name: 'オーバーヒートサラダ', ings: { herb: 17, ginger: 10, tomato: 8 } },
+      { id: 's_houshi', cat: 'サラダ', name: 'キノコのほうしサラダ', ings: { mushroom: 17, tomato: 8, oil: 8 } },
+      
+      // Dessert
+      { id: 'd_waffle', cat: 'デザート', name: 'みつあつめチョコワッフル', ings: { honey: 38, corn: 28, oil: 28, cacao: 21 } },
+      { id: 'd_pancake', cat: 'デザート', name: 'ドキドキこわいかおパンケーキ', ings: { honey: 32, tomato: 29, egg: 24, pumpkin: 18 } },
+      { id: 'd_eclair', cat: 'デザート', name: 'ドオーのエクレア', ings: { cacao: 30, milk: 26, coffee: 24, honey: 22 } },
+      { id: 'd_cola', cat: 'デザート', name: 'スパークスパイスコーラ', ings: { coffee: 12, apple: 35, leek: 20, ginger: 20 } },
+      { id: 'd_macaron', cat: 'デザート', name: 'フラワーギフトマカロン', ings: { cacao: 25, egg: 25, honey: 17, milk: 10 } },
+      { id: 'd_scone', cat: 'デザート', name: 'おちゃかいコーンスコーン', ings: { apple: 20, ginger: 20, corn: 18, milk: 9 } },
+      { id: 'd_pudding', cat: 'デザート', name: 'プリンのプリンアラモード', ings: { honey: 20, egg: 15, milk: 10, apple: 10 } },
+      { id: 'd_jelly', cat: 'デザート', name: 'はやおきコーヒーゼリー', ings: { coffee: 16, milk: 14, honey: 12 } },
+      { id: 'd_neroli', cat: 'デザート', name: 'ネロリのデトックスティー', ings: { herb: 11, ginger: 10, apple: 15 } }
+    ];
+
+    let plannedMeals = [];
+    let inventory = {};
+    ingredients.forEach(i => inventory[i.id] = 0);
+
+    function init() {
+      const invContainer = document.getElementById('inventory-container');
+      ingredients.forEach(ing => {
+        const div = document.createElement('div');
+        div.className = 'flex flex-col bg-[var(--card)] p-1 rounded border border-[var(--border)] shadow-sm';
+        div.innerHTML = `
+          <span class="text-[10px] font-bold text-center w-full truncate mb-1">${ing.name}</span>
+          <div class="flex items-center justify-between space-x-1">
+            <button class="w-6 h-6 flex items-center justify-center bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-200 font-bold hover:bg-gray-300 transition-colors" onclick="adjInv('${ing.id}', -5)">-</button>
+            <input type="number" id="inv-${ing.id}" value="0" class="w-full text-center text-xs bg-transparent border-b border-[var(--border)] outline-none" onchange="updInv('${ing.id}')" min="0">
+            <button class="w-6 h-6 flex items-center justify-center bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-200 font-bold hover:bg-gray-300 transition-colors" onclick="adjInv('${ing.id}', 5)">+</button>
+          </div>
+        `;
+        invContainer.appendChild(div);
+      });
+
+      addMeal();
+
+      document.getElementById('base-pot').addEventListener('input', calculate);
+      document.getElementById('bag-max').addEventListener('input', calculate);
+      document.getElementById('camp-ticket').addEventListener('change', calculate);
+      document.getElementById('skill-pot').addEventListener('input', calculate);
+      document.getElementById('add-meal-btn').addEventListener('click', addMeal);
+      document.getElementById('clear-inv-btn').addEventListener('click', () => {
+        ingredients.forEach(i => { inventory[i.id] = 0; document.getElementById(`inv-${i.id}`).value = 0; });
+        calculate();
+      });
+    }
+
+    function addMeal() {
+      const id = Date.now().toString();
+      plannedMeals.push({ id, recipeId: recipes[0].id, count: 1, isSunday: false });
+      renderMeals();
+      calculate();
+    }
+
+    function removeMeal(id) {
+      plannedMeals = plannedMeals.filter(m => m.id !== id);
+      renderMeals();
+      calculate();
+    }
+
+    function updMeal(id, field, val) {
+      const meal = plannedMeals.find(m => m.id === id);
+      if (meal) meal[field] = val;
+      calculate();
+    }
+
+    function renderMeals() {
+      const c = document.getElementById('meals-container');
+      c.innerHTML = '';
+      plannedMeals.forEach(meal => {
+        const div = document.createElement('div');
+        div.className = 'flex flex-col space-y-1.5 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-2 bg-[var(--card)] p-1.5 rounded border border-[var(--border)]';
+        
+        let opts = recipes.map(r => `<option value="${r.id}" class="bg-[var(--card)] text-[var(--foreground)]" ${meal.recipeId===r.id?'selected':''}>[${r.cat}] ${r.name}</option>`).join('');
+        
+        div.innerHTML = `
+          <select class="w-full sm:w-auto flex-grow p-1 border border-[var(--border)] rounded text-[11px] bg-[var(--card)] text-[var(--foreground)] outline-none" onchange="updMeal('${meal.id}', 'recipeId', this.value)">
+            ${opts}
+          </select>
+          <div class="flex items-center space-x-2 justify-between sm:justify-start">
+            <div class="flex items-center space-x-1">
+              <span class="text-[10px]">食数:</span>
+              <input type="number" min="1" max="10" value="${meal.count}" class="w-10 p-1 border rounded text-[11px] text-center bg-transparent" onchange="updMeal('${meal.id}', 'count', parseInt(this.value)||1)">
+            </div>
+            <label class="flex items-center space-x-1 text-[10px] text-red-500 font-bold bg-red-50 dark:bg-red-900/30 px-1.5 py-0.5 rounded cursor-pointer border border-red-200 dark:border-red-800">
+              <input type="checkbox" ${meal.isSunday?'checked':''} onchange="updMeal('${meal.id}', 'isSunday', this.checked)">
+              <span>日曜日</span>
+            </label>
+            <button class="text-gray-400 hover:text-red-500 font-bold px-1" onclick="removeMeal('${meal.id}')">✕</button>
+          </div>
+        `;
+        c.appendChild(div);
+      });
+    }
+
+    function adjInv(id, delta) {
+      const el = document.getElementById(`inv-${id}`);
+      let v = parseInt(el.value) || 0;
+      v = Math.max(0, v + delta);
+      el.value = v;
+      inventory[id] = v;
+      calculate();
+    }
+
+    function updInv(id) {
+      const el = document.getElementById(`inv-${id}`);
+      inventory[id] = Math.max(0, parseInt(el.value) || 0);
+      calculate();
+    }
+
+    function calculate() {
+      const basePot = parseInt(document.getElementById('base-pot').value) || 0;
+      const bagMax = parseInt(document.getElementById('bag-max').value) || 0;
+      const isCamp = document.getElementById('camp-ticket').checked;
+      const skillPot = parseInt(document.getElementById('skill-pot').value) || 0;
+
+      const required = {};
+      ingredients.forEach(i => required[i.id] = 0);
+      let totalFillerSpace = 0;
+
+      plannedMeals.forEach(meal => {
+        const recipe = recipes.find(r => r.id === meal.recipeId);
+        let recipeBaseSize = 0;
+        
+        for (const [ing, qty] of Object.entries(recipe.ings)) {
+          required[ing] += qty * meal.count;
+          recipeBaseSize += qty;
+        }
+
+        let potSize = basePot;
+        if (meal.isSunday) potSize *= 2;
+        if (isCamp) potSize = Math.floor(potSize * 1.5);
+        potSize += skillPot;
+
+        let fillerPerMeal = Math.max(0, potSize - recipeBaseSize);
+        totalFillerSpace += fillerPerMeal * meal.count;
+      });
+
+      const shortage = {};
+      let totalShortage = 0;
+      let totalCurrentInv = 0;
+      let totalSurplus = 0; 
+
+      ingredients.forEach(i => {
+        const inv = inventory[i.id];
+        const req = required[i.id];
+        totalCurrentInv += inv;
+        
+        if (req > inv) {
+          shortage[i.name] = req - inv;
+          totalShortage += (req - inv);
+        } else if (inv > req) {
+          totalSurplus += (inv - req);
+        }
+      });
+
+      const shortContainer = document.getElementById('shortage-result');
+      if (totalShortage === 0) {
+        shortContainer.innerHTML = `<div class="text-green-500 font-bold border border-green-200 bg-green-50 dark:bg-green-900/20 p-2 rounded">✨ 現在の在庫ですべての料理が作れます！</div>`;
+      } else {
+        const tags = Object.entries(shortage).map(([name, qty]) => 
+          `<span class="inline-flex items-center bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded text-[10px] font-bold mr-1 mb-1 border border-red-200 dark:border-red-800">${name} <span class="bg-red-500 text-white rounded px-1 ml-1">${qty}</span></span>`
+        ).join('');
+        shortContainer.innerHTML = `<div class="mb-1 text-[10px] font-bold text-gray-600">あと ${totalShortage} 個の食材が必要です：</div><div class="flex flex-wrap">${tags}</div>`;
+      }
+
+      const surplusContainer = document.getElementById('surplus-result');
+      const finalBagSpace = bagMax - totalCurrentInv;
+      
+      let bagStatusHtml = finalBagSpace < 0 
+        ? `<span class="text-red-500 font-bold">⚠️ バッグ上限を超過しています (${finalBagSpace}個)</span>` 
+        : `現在のバッグ空き枠: <span class="font-bold text-blue-500">${finalBagSpace}個</span>`;
+
+      let potStatusHtml = '';
+      if (totalSurplus > totalFillerSpace) {
+        potStatusHtml = `
+          <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 p-2 rounded text-red-700 dark:text-red-400">
+            <strong>⚠️ 鍋のスキマが足りません！</strong><br>
+            料理に使わない余剰食材が <b class="text-lg">${totalSurplus}</b> 個ありますが、<br>
+            予定している食事の「鍋のスキマ」は合計 <b class="text-lg">${totalFillerSpace}</b> 個分しかありません。<br>
+            <span class="text-[10px] block mt-1">※ ${totalSurplus - totalFillerSpace} 個の食材が来週に持ち越されるか、売却する必要があります。</span>
+          </div>`;
+      } else {
+        potStatusHtml = `
+          <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 p-2 rounded text-green-700 dark:text-green-400">
+            <strong>✨ スキマにすべて投入可能です！</strong><br>
+            余剰食材（${totalSurplus}個）をすべて鍋のスキマ（最大${totalFillerSpace}個）に突っ込んでエナジーに変換できます！
+          </div>`;
+      }
+
+      surplusContainer.innerHTML = `<div>${bagStatusHtml}</div>${potStatusHtml}`;
+    }
+
+    init();
+  </script>
+</body>
+</html>
